@@ -12,6 +12,10 @@ NTFY_EUR = os.getenv("NTFY_EUR", "https://ntfy.sh/rick-eur-macd-secret-2026")
 NTFY_GBP = os.getenv("NTFY_GBP", "https://ntfy.sh/rick-gbp-macd-secret-2026")
 NTFY_V75 = os.getenv("NTFY_V75", "https://ntfy.sh/rick-v75-macd-secret-2026")
 
+# ===== CONFIGURATION FACEBOOK =====
+FB_PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN")
+FB_PAGE_ID = os.getenv("FB_PAGE_ID")
+
 PAIRS = {
     "XAUUSD": {"symbol": "GC=F", "ntfy": NTFY_XAU, "dec": 2, "name": "XAUUSD (Or)"},
     "EURUSD": {"symbol": "EURUSD=X", "ntfy": NTFY_EUR, "dec": 5, "name": "EURUSD"},
@@ -41,6 +45,57 @@ def send(url, title, msg, img=None):
             log(f"❌ Erreur: {e}")
             time.sleep(2**i)
     return False
+
+def publier_facebook(page_id, page_token, message, image=None):
+    """Publie un message et/ou une image sur la page Facebook"""
+    try:
+        if not page_token or not page_id:
+            log("⏭️ Pas de token Facebook configuré")
+            return False
+        
+        url = f"https://graph.facebook.com/v24.0/{page_id}/feed"
+        data = {
+            "message": message,
+            "access_token": page_token
+        }
+        r = requests.post(url, data=data, timeout=30)
+        if r.status_code == 200:
+            log(f"✅ Facebook texte publié")
+        else:
+            log(f"⚠️ Facebook erreur texte: {r.status_code}")
+            return False
+        
+        if image:
+            url_img = f"https://graph.facebook.com/v24.0/{page_id}/photos"
+            files = {
+                'source': ('chart.png', image, 'image/png'),
+                'access_token': (None, page_token),
+                'published': (None, 'false')
+            }
+            r_img = requests.post(url_img, files=files, timeout=30)
+            if r_img.status_code != 200:
+                log(f"⚠️ Facebook erreur upload image: {r_img.status_code}")
+                return False
+            
+            img_id = r_img.json().get('id')
+            if img_id:
+                url_post = f"https://graph.facebook.com/v24.0/{page_id}/feed"
+                data_post = {
+                    "message": message,
+                    "attached_media[0]": f'{{"media_fbid":"{img_id}"}}',
+                    "access_token": page_token
+                }
+                r_post = requests.post(url_post, data=data_post, timeout=30)
+                if r_post.status_code == 200:
+                    log(f"✅ Facebook image publiée")
+                    return True
+                else:
+                    log(f"⚠️ Facebook erreur post image: {r_post.status_code}")
+                    return False
+        return True
+    except Exception as e:
+        log(f"❌ Facebook erreur: {e}")
+        return False
 
 def get_candles_deriv(sym, granularity=60):
     try:
@@ -187,7 +242,6 @@ def analyze_macd(key, info):
     conseil = ""
     condition_remplie = False
     
-    # ===== DÉTECTION DES ÉVÉNEMENTS =====
     if cross_h4:
         if direction_h4 == "HAUT":
             msg = f"📊 Tendance H4 DEVIENT HAUSSIERE\n✅ MACD + Signal + Histo croisent 0 vers le HAUT"
@@ -205,7 +259,6 @@ def analyze_macd(key, info):
         conseil = "📉 VENTE (H4 BAISSIER + M10 BAS)"
         condition_remplie = True
     
-    # ===== SI CONDITION REMPLIE, ON ENVOIE TOUT =====
     if condition_remplie:
         full_msg = f"{msg}\n\n💰 Prix: {cp:.{dec}f}\n🕒 {h}H Bénin\n🤖 MACD Bot"
         
@@ -227,6 +280,19 @@ def analyze_macd(key, info):
         img_m10 = chart_macd_mt5(candles_m10, macd_m10, signal_m10, histo_m10, f"{info['name']} M10", cp, dec)
         if img_m10:
             send(info["ntfy"], f"{key} M10 - {conseil}", "MACD M10 (3,100,3)", img_m10)
+        
+        # ===== PUBLICATION FACEBOOK =====
+        if FB_PAGE_TOKEN and FB_PAGE_ID:
+            # Préparer un message avec les deux images
+            img_combined = None
+            # Si les deux images existent, on les combine ou on publie la H4
+            if img_h4:
+                log(f"📤 Publication Facebook {key} (H4)...")
+                publier_facebook(FB_PAGE_ID, FB_PAGE_TOKEN, full_msg, img_h4)
+            if img_m10:
+                time.sleep(1)
+                log(f"📤 Publication Facebook {key} (M10)...")
+                publier_facebook(FB_PAGE_ID, FB_PAGE_TOKEN, full_msg, img_m10)
     else:
         log(f"⏭️ RIEN NE SE PASSE POUR {key} - SILENCE")
 

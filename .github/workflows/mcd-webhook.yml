@@ -25,4 +25,6 @@ jobs:
           NTFY_EUR: ${{ secrets.NTFY_EUR }}
           NTFY_GBP: ${{ secrets.NTFY_GBP }}
           NTFY_V75: ${{ secrets.NTFY_V75 }}
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
         run: python bot.py
