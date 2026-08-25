@@ -16,6 +16,9 @@ NTFY_V75 = os.getenv("NTFY_V75", "https://ntfy.sh/rick-v75-macd-secret-2026")
 FB_PAGE_TOKEN = os.getenv("FB_PAGE_TOKEN")
 FB_PAGE_ID = os.getenv("FB_PAGE_ID")
 
+# ===== CONFIGURATION STORY =====
+STORY_FILE = "story_count.txt"
+
 PAIRS = {
     "XAUUSD": {"symbol": "GC=F", "ntfy": NTFY_XAU, "dec": 2, "name": "XAUUSD (Or)"},
     "EURUSD": {"symbol": "EURUSD=X", "ntfy": NTFY_EUR, "dec": 5, "name": "EURUSD"},
@@ -46,8 +49,77 @@ def send(url, title, msg, img=None):
             time.sleep(2**i)
     return False
 
+# ===== FONCTIONS STORY =====
+def get_story_count():
+    """Récupère le nombre de stories publiées aujourd'hui"""
+    try:
+        with open(STORY_FILE, 'r') as f:
+            date, count = f.read().strip().split(',')
+            if date == datetime.now().strftime('%Y-%m-%d'):
+                return int(count)
+    except:
+        pass
+    return 0
+
+def increment_story_count():
+    """Incrémente le nombre de stories publiées aujourd'hui"""
+    date = datetime.now().strftime('%Y-%m-%d')
+    count = get_story_count() + 1
+    with open(STORY_FILE, 'w') as f:
+        f.write(f"{date},{count}")
+    return count
+
+def peut_publier_story():
+    """Vérifie si on peut publier une story aujourd'hui"""
+    jour = datetime.now().day
+    if jour % 2 != 0:  # Jours impairs = pas de publication
+        return False
+    if get_story_count() >= 6:
+        return False
+    return True
+
+def publier_story(page_id, page_token, message, image):
+    """Publie une story sur Facebook avec image et texte"""
+    try:
+        if not page_token or not page_id:
+            log("⏭️ Pas de token Facebook pour story")
+            return False
+        
+        url_img = f"https://graph.facebook.com/v24.0/{page_id}/photos"
+        files = {
+            'source': ('chart.png', image, 'image/png'),
+            'access_token': (None, page_token),
+            'published': (None, 'false')
+        }
+        r_img = requests.post(url_img, files=files, timeout=30)
+        if r_img.status_code != 200:
+            log(f"⚠️ Story: erreur upload image {r_img.status_code}")
+            return False
+        
+        img_id = r_img.json().get('id')
+        if not img_id:
+            log("⚠️ Story: pas d'ID d'image")
+            return False
+        
+        url_story = f"https://graph.facebook.com/v24.0/{page_id}/stories"
+        data_story = {
+            "media_id": img_id,
+            "access_token": page_token
+        }
+        r_story = requests.post(url_story, data=data_story, timeout=30)
+        if r_story.status_code == 200:
+            log(f"✅ Story publiée")
+            increment_story_count()
+            return True
+        else:
+            log(f"⚠️ Story: erreur {r_story.status_code}")
+            return False
+    except Exception as e:
+        log(f"❌ Story erreur: {e}")
+        return False
+
 def publier_facebook(page_id, page_token, message, image=None):
-    """Publie un message et/ou une image sur la page Facebook"""
+    """Publie un message sur le feed Facebook"""
     try:
         if not page_token or not page_id:
             log("⏭️ Pas de token Facebook configuré")
@@ -60,39 +132,11 @@ def publier_facebook(page_id, page_token, message, image=None):
         }
         r = requests.post(url, data=data, timeout=30)
         if r.status_code == 200:
-            log(f"✅ Facebook texte publié")
+            log(f"✅ Facebook feed publié")
+            return True
         else:
-            log(f"⚠️ Facebook erreur texte: {r.status_code}")
+            log(f"⚠️ Facebook erreur feed: {r.status_code}")
             return False
-        
-        if image:
-            url_img = f"https://graph.facebook.com/v24.0/{page_id}/photos"
-            files = {
-                'source': ('chart.png', image, 'image/png'),
-                'access_token': (None, page_token),
-                'published': (None, 'false')
-            }
-            r_img = requests.post(url_img, files=files, timeout=30)
-            if r_img.status_code != 200:
-                log(f"⚠️ Facebook erreur upload image: {r_img.status_code}")
-                return False
-            
-            img_id = r_img.json().get('id')
-            if img_id:
-                url_post = f"https://graph.facebook.com/v24.0/{page_id}/feed"
-                data_post = {
-                    "message": message,
-                    "attached_media[0]": f'{{"media_fbid":"{img_id}"}}',
-                    "access_token": page_token
-                }
-                r_post = requests.post(url_post, data=data_post, timeout=30)
-                if r_post.status_code == 200:
-                    log(f"✅ Facebook image publiée")
-                    return True
-                else:
-                    log(f"⚠️ Facebook erreur post image: {r_post.status_code}")
-                    return False
-        return True
     except Exception as e:
         log(f"❌ Facebook erreur: {e}")
         return False
@@ -262,12 +306,13 @@ def analyze_macd(key, info):
     if condition_remplie:
         full_msg = f"{msg}\n\n💰 Prix: {cp:.{dec}f}\n🕒 {h}H Bénin\n🤖 MACD Bot"
         
+        # ===== NTFY =====
         log(f"📤 ENVOI ÉVÉNEMENT {key}...")
         send(info["ntfy"], f"🚨 {key} - {conseil}", full_msg)
         
         time.sleep(1)
         
-        # Graphique H4
+        # ===== GRAPHIQUE H4 =====
         log(f"📤 Graphique H4 pour {key}...")
         img_h4 = chart_macd_mt5(candles_h4, macd_h4, signal_h4, histo_h4, f"{info['name']} H4", cp, dec)
         if img_h4:
@@ -275,17 +320,14 @@ def analyze_macd(key, info):
         
         time.sleep(1)
         
-        # Graphique M10
+        # ===== GRAPHIQUE M10 =====
         log(f"📤 Graphique M10 pour {key}...")
         img_m10 = chart_macd_mt5(candles_m10, macd_m10, signal_m10, histo_m10, f"{info['name']} M10", cp, dec)
         if img_m10:
             send(info["ntfy"], f"{key} M10 - {conseil}", "MACD M10 (3,100,3)", img_m10)
         
-        # ===== PUBLICATION FACEBOOK =====
+        # ===== FACEBOOK FEED =====
         if FB_PAGE_TOKEN and FB_PAGE_ID:
-            # Préparer un message avec les deux images
-            img_combined = None
-            # Si les deux images existent, on les combine ou on publie la H4
             if img_h4:
                 log(f"📤 Publication Facebook {key} (H4)...")
                 publier_facebook(FB_PAGE_ID, FB_PAGE_TOKEN, full_msg, img_h4)
@@ -293,6 +335,14 @@ def analyze_macd(key, info):
                 time.sleep(1)
                 log(f"📤 Publication Facebook {key} (M10)...")
                 publier_facebook(FB_PAGE_ID, FB_PAGE_TOKEN, full_msg, img_m10)
+        
+        # ===== FACEBOOK STORY =====
+        if FB_PAGE_TOKEN and FB_PAGE_ID and img_h4:
+            if peut_publier_story():
+                log(f"📤 Publication story {key} (H4)...")
+                publier_story(FB_PAGE_ID, FB_PAGE_TOKEN, full_msg, img_h4)
+            else:
+                log(f"⏭️ Story: conditions non remplies pour {key}")
     else:
         log(f"⏭️ RIEN NE SE PASSE POUR {key} - SILENCE")
 
