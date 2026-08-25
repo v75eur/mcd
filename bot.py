@@ -83,76 +83,51 @@ def get_candles(sym, interval="1h", range_days="60d"):
         return []
 
 def calc_macd(candles, fast=3, slow=100, signal=3):
-    """Calcule MACD (3, 100, 3) avec SMA pour le signal"""
     closes = np.array([c["c"] for c in candles])
-    # EMA rapide
     ema_fast = pd.Series(closes).ewm(span=fast, adjust=False).mean().values
-    # EMA lente
     ema_slow = pd.Series(closes).ewm(span=slow, adjust=False).mean().values
-    # Ligne MACD
     macd_line = ema_fast - ema_slow
-    # Signal = SMA 3 de la MACD
     signal_line = pd.Series(macd_line).rolling(window=signal).mean().values
-    # Histogramme
     histo = macd_line - signal_line
     return macd_line, signal_line, histo
 
 def detect_cross_zero(macd, signal, histo):
-    """Détecte si les 3 lignes croisent 0 en même temps"""
     if len(macd) < 2:
         return None, False
-    # Vérifier si les 3 sont > 0 maintenant et étaient < 0 avant
     if macd[-1] > 0 and signal[-1] > 0 and histo[-1] > 0:
         if macd[-2] <= 0 and signal[-2] <= 0 and histo[-2] <= 0:
             return "HAUT", True
-    # Vérifier si les 3 sont < 0 maintenant et étaient > 0 avant
     elif macd[-1] < 0 and signal[-1] < 0 and histo[-1] < 0:
         if macd[-2] >= 0 and signal[-2] >= 0 and histo[-2] >= 0:
             return "BAS", True
     return None, False
 
 def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
-    """Génère un graphique style MT5 avec chandeliers + MACD (3,100,3)"""
     if len(candles) < 20:
         return None
     
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 12), gridspec_kw={'height_ratios': [2, 1]})
     fig.patch.set_facecolor('#0a0a0a')
     
-    # ===== GRAPHIQUE 1 : CHANDELIERS =====
     ax1.set_facecolor('#0d1117')
     for i, c in enumerate(candles):
         col = '#26a69a' if c["c"] >= c["o"] else '#ef5350'
-        # Mèche
         ax1.plot([i, i], [c["l"], c["h"]], color=col, lw=1.2)
-        # Corps
         ax1.add_patch(plt.Rectangle((i-0.35, min(c["o"], c["c"])), 0.7, abs(c["c"]-c["o"]) or 0.0001, facecolor=col, edgecolor=col))
     
-    # Prix actuel
     ax1.axhline(price, color='#f59e0b', ls='-.', lw=2, alpha=0.7)
     ax1.text(len(candles)-1, price, f'  {price:.{dec}f}', color='#f59e0b', fontsize=12, fontweight='bold')
-    
     ax1.set_title(f"{title} - Chandeliers", color='white', fontsize=14, fontweight='bold')
     ax1.set_ylabel("Prix", color='white', fontsize=12)
     ax1.tick_params(colors='white')
     ax1.grid(True, alpha=0.15, color='gray')
     
-    # ===== GRAPHIQUE 2 : MACD (3, 100, 3) =====
     ax2.set_facecolor('#0d1117')
-    
-    # Histogramme
     colors = ['#26a69a' if h >= 0 else '#ef5350' for h in histo]
     ax2.bar(range(len(histo)), histo, color=colors, alpha=0.7, width=0.8, label='Histogramme')
-    
-    # Ligne MACD
     ax2.plot(range(len(macd_line)), macd_line, color='#00b4d8', lw=2, label='MACD (3)')
-    
-    # Ligne Signal
     ax2.plot(range(len(signal_line)), signal_line, color='#ff6b6b', lw=2, label='Signal (3 SMA)')
-    
-    # Ligne zéro
     ax2.axhline(0, color='white', lw=1, linestyle='--', alpha=0.5)
-    
     ax2.set_title("MACD (3, 100, 3)", color='white', fontsize=14, fontweight='bold')
     ax2.set_xlabel("Bougies", color='white', fontsize=12)
     ax2.set_ylabel("MACD", color='white', fontsize=12)
@@ -170,7 +145,6 @@ def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
 def analyze_macd(key, info):
     log(f"🔍 Analyse MACD {key}...")
     
-    # Récupérer les données H4
     src = info.get("source", "yahoo")
     if src == "deriv":
         candles_h4 = get_candles_deriv(info["symbol"], granularity=14400)
@@ -192,16 +166,12 @@ def analyze_macd(key, info):
         log(f"⚠️ Pas de données pour {key}")
         return
     
-    # Calculer MACD H4
     macd_h4, signal_h4, histo_h4 = calc_macd(candles_h4)
-    # Calculer MACD M10
     macd_m10, signal_m10, histo_m10 = calc_macd(candles_m10)
     
-    # Détecter les croisements
     direction_h4, cross_h4 = detect_cross_zero(macd_h4, signal_h4, histo_h4)
     direction_m10, cross_m10 = detect_cross_zero(macd_m10, signal_m10, histo_m10)
     
-    # Déterminer la tendance H4
     if macd_h4[-1] > 0 and signal_h4[-1] > 0 and histo_h4[-1] > 0:
         tendance_h4 = "HAUSSIERE"
     elif macd_h4[-1] < 0 and signal_h4[-1] < 0 and histo_h4[-1] < 0:
@@ -217,7 +187,7 @@ def analyze_macd(key, info):
     conseil = ""
     condition_remplie = False
     
-    # Cas 1 : Changement de tendance H4
+    # ===== DÉTECTION DES ÉVÉNEMENTS =====
     if cross_h4:
         if direction_h4 == "HAUT":
             msg = f"📊 Tendance H4 DEVIENT HAUSSIERE\n✅ MACD + Signal + Histo croisent 0 vers le HAUT"
@@ -226,52 +196,39 @@ def analyze_macd(key, info):
             msg = f"📊 Tendance H4 DEVIENT BAISSIERE\n✅ MACD + Signal + Histo croisent 0 vers le BAS"
             conseil = "🔍 Tendance BAISSIERE confirmée (H4)"
         condition_remplie = True
-    
-    # Cas 2 : Signal d'achat M10
     elif cross_m10 and direction_m10 == "HAUT" and tendance_h4 == "HAUSSIERE":
         msg = f"📈 SIGNAL ACHAT MACD\n✅ Tendance HAUSSIERE (H4) confirmée\n✅ Croisement HAUT sur M10"
         conseil = "📈 ACHAT (H4 HAUSSIER + M10 HAUT)"
         condition_remplie = True
-    
-    # Cas 3 : Signal de vente M10
     elif cross_m10 and direction_m10 == "BAS" and tendance_h4 == "BAISSIERE":
         msg = f"📉 SIGNAL VENTE MACD\n✅ Tendance BAISSIERE (H4) confirmée\n✅ Croisement BAS sur M10"
         conseil = "📉 VENTE (H4 BAISSIER + M10 BAS)"
         condition_remplie = True
     
-    # Cas 4 : Pas de signal
+    # ===== SI CONDITION REMPLIE, ON ENVOIE TOUT =====
+    if condition_remplie:
+        full_msg = f"{msg}\n\n💰 Prix: {cp:.{dec}f}\n🕒 {h}H Bénin\n🤖 MACD Bot"
+        
+        log(f"📤 ENVOI ÉVÉNEMENT {key}...")
+        send(info["ntfy"], f"🚨 {key} - {conseil}", full_msg)
+        
+        time.sleep(1)
+        
+        # Graphique H4
+        log(f"📤 Graphique H4 pour {key}...")
+        img_h4 = chart_macd_mt5(candles_h4, macd_h4, signal_h4, histo_h4, f"{info['name']} H4", cp, dec)
+        if img_h4:
+            send(info["ntfy"], f"{key} H4 - {conseil}", "MACD H4 (3,100,3)", img_h4)
+        
+        time.sleep(1)
+        
+        # Graphique M10
+        log(f"📤 Graphique M10 pour {key}...")
+        img_m10 = chart_macd_mt5(candles_m10, macd_m10, signal_m10, histo_m10, f"{info['name']} M10", cp, dec)
+        if img_m10:
+            send(info["ntfy"], f"{key} M10 - {conseil}", "MACD M10 (3,100,3)", img_m10)
     else:
-        msg = f"❌ Aucun signal MACD"
-        if tendance_h4 == "HAUSSIERE":
-            msg += f"\n📊 Tendance H4: HAUSSIERE"
-        elif tendance_h4 == "BAISSIERE":
-            msg += f"\n📊 Tendance H4: BAISSIERE"
-        else:
-            msg += f"\n📊 Tendance H4: NEUTRE"
-        if len(macd_m10) > 1:
-            msg += f"\n📊 MACD M10: {macd_m10[-1]:.6f} | Signal: {signal_m10[-1]:.6f} | Histo: {histo_m10[-1]:.6f}"
-        conseil = "🔍 Surveillance MACD"
-    
-    full_msg = f"{msg}\n\n💰 Prix: {cp:.{dec}f}\n🕒 {h}H Bénin\n🤖 MACD Bot"
-    
-    log(f"📤 Envoi notification {key}...")
-    send(info["ntfy"], f"{key} - {conseil}", full_msg)
-    
-    time.sleep(1)
-    
-    # Graphique H4
-    log(f"📤 Graphique H4 pour {key}...")
-    img_h4 = chart_macd_mt5(candles_h4, macd_h4, signal_h4, histo_h4, f"{info['name']} H4", cp, dec)
-    if img_h4:
-        send(info["ntfy"], f"{key} H4 - {conseil}", "MACD H4 (3,100,3)", img_h4)
-    
-    time.sleep(1)
-    
-    # Graphique M10
-    log(f"📤 Graphique M10 pour {key}...")
-    img_m10 = chart_macd_mt5(candles_m10, macd_m10, signal_m10, histo_m10, f"{info['name']} M10", cp, dec)
-    if img_m10:
-        send(info["ntfy"], f"{key} M10 - {conseil}", "MACD M10 (3,100,3)", img_m10)
+        log(f"⏭️ RIEN NE SE PASSE POUR {key} - SILENCE")
 
 if __name__ == "__main__":
     log("🚀 MACD BOT - Stratégie H4 + M10")
