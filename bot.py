@@ -18,6 +18,7 @@ FB_PAGE_ID = os.getenv("FB_PAGE_ID")
 
 # ===== CONFIGURATION STORY =====
 STORY_FILE = "story_count.txt"
+MAX_STORIES_PER_DAY = 10  # ← MODIFIÉ : 10 stories par jour
 
 PAIRS = {
     "XAUUSD": {"symbol": "GC=F", "ntfy": NTFY_XAU, "dec": 2, "name": "XAUUSD (Or)"},
@@ -74,7 +75,7 @@ def peut_publier_story():
     jour = datetime.now().day
     if jour % 2 != 0:  # Jours impairs = pas de publication
         return False
-    if get_story_count() >= 6:
+    if get_story_count() >= MAX_STORIES_PER_DAY:
         return False
     return True
 
@@ -119,24 +120,55 @@ def publier_story(page_id, page_token, message, image):
         return False
 
 def publier_facebook(page_id, page_token, message, image=None):
-    """Publie un message sur le feed Facebook"""
+    """Publie un message et une image sur le feed Facebook"""
     try:
         if not page_token or not page_id:
             log("⏭️ Pas de token Facebook configuré")
             return False
         
-        url = f"https://graph.facebook.com/v24.0/{page_id}/feed"
-        data = {
-            "message": message,
-            "access_token": page_token
-        }
-        r = requests.post(url, data=data, timeout=30)
-        if r.status_code == 200:
-            log(f"✅ Facebook feed publié")
-            return True
+        if image:
+            url_img = f"https://graph.facebook.com/v24.0/{page_id}/photos"
+            files = {
+                'source': ('chart.png', image, 'image/png'),
+                'access_token': (None, page_token),
+                'published': (None, 'false')
+            }
+            r_img = requests.post(url_img, files=files, timeout=30)
+            if r_img.status_code != 200:
+                log(f"⚠️ Facebook erreur upload image: {r_img.status_code}")
+                return False
+            
+            img_id = r_img.json().get('id')
+            if not img_id:
+                log("⚠️ Facebook: pas d'ID d'image")
+                return False
+            
+            url_post = f"https://graph.facebook.com/v24.0/{page_id}/feed"
+            data_post = {
+                "message": message,
+                "attached_media[0]": f'{{"media_fbid":"{img_id}"}}',
+                "access_token": page_token
+            }
+            r_post = requests.post(url_post, data=data_post, timeout=30)
+            if r_post.status_code == 200:
+                log(f"✅ Facebook feed publié avec image")
+                return True
+            else:
+                log(f"⚠️ Facebook erreur post: {r_post.status_code}")
+                return False
         else:
-            log(f"⚠️ Facebook erreur feed: {r.status_code}")
-            return False
+            url = f"https://graph.facebook.com/v24.0/{page_id}/feed"
+            data = {
+                "message": message,
+                "access_token": page_token
+            }
+            r = requests.post(url, data=data, timeout=30)
+            if r.status_code == 200:
+                log(f"✅ Facebook feed publié (texte)")
+                return True
+            else:
+                log(f"⚠️ Facebook erreur feed: {r.status_code}")
+                return False
     except Exception as e:
         log(f"❌ Facebook erreur: {e}")
         return False
@@ -199,9 +231,7 @@ def detect_cross_zero(macd, signal, histo):
     elif macd[-1] < 0 and signal[-1] < 0 and histo[-1] < 0:
         if macd[-2] >= 0 and signal[-2] >= 0 and histo[-2] >= 0:
             return "BAS", True
-    return None, False
-
-def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
+    return None, Falsedef chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
     if len(candles) < 20:
         return None
     
