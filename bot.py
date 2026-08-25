@@ -82,8 +82,8 @@ def get_candles(sym, interval="1h", range_days="60d"):
         log(f"❌ Yahoo {sym}: {e}")
         return []
 
-def calc_macd(candles, fast=3, slow=10, signal=3):
-    """Calcule MACD (3, 10, 3) avec SMA pour le signal"""
+def calc_macd(candles, fast=3, slow=100, signal=3):
+    """Calcule MACD (3, 100, 3) avec SMA pour le signal"""
     closes = np.array([c["c"] for c in candles])
     # EMA rapide
     ema_fast = pd.Series(closes).ewm(span=fast, adjust=False).mean().values
@@ -112,7 +112,7 @@ def detect_cross_zero(macd, signal, histo):
     return None, False
 
 def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
-    """Génère un graphique style MT5 avec chandeliers + MACD"""
+    """Génère un graphique style MT5 avec chandeliers + MACD (3,100,3)"""
     if len(candles) < 20:
         return None
     
@@ -137,7 +137,7 @@ def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
     ax1.tick_params(colors='white')
     ax1.grid(True, alpha=0.15, color='gray')
     
-    # ===== GRAPHIQUE 2 : MACD =====
+    # ===== GRAPHIQUE 2 : MACD (3, 100, 3) =====
     ax2.set_facecolor('#0d1117')
     
     # Histogramme
@@ -153,7 +153,7 @@ def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
     # Ligne zéro
     ax2.axhline(0, color='white', lw=1, linestyle='--', alpha=0.5)
     
-    ax2.set_title("MACD (3, 10, 3)", color='white', fontsize=14, fontweight='bold')
+    ax2.set_title("MACD (3, 100, 3)", color='white', fontsize=14, fontweight='bold')
     ax2.set_xlabel("Bougies", color='white', fontsize=12)
     ax2.set_ylabel("MACD", color='white', fontsize=12)
     ax2.tick_params(colors='white')
@@ -263,7 +263,7 @@ def analyze_macd(key, info):
     log(f"📤 Graphique H4 pour {key}...")
     img_h4 = chart_macd_mt5(candles_h4, macd_h4, signal_h4, histo_h4, f"{info['name']} H4", cp, dec)
     if img_h4:
-        send(info["ntfy"], f"{key} H4 - {conseil}", "MACD H4 (MT5)", img_h4)
+        send(info["ntfy"], f"{key} H4 - {conseil}", "MACD H4 (3,100,3)", img_h4)
     
     time.sleep(1)
     
@@ -271,7 +271,7 @@ def analyze_macd(key, info):
     log(f"📤 Graphique M10 pour {key}...")
     img_m10 = chart_macd_mt5(candles_m10, macd_m10, signal_m10, histo_m10, f"{info['name']} M10", cp, dec)
     if img_m10:
-        send(info["ntfy"], f"{key} M10 - {conseil}", "MACD M10 (MT5)", img_m10)
+        send(info["ntfy"], f"{key} M10 - {conseil}", "MACD M10 (3,100,3)", img_m10)
 
 if __name__ == "__main__":
     log("🚀 MACD BOT - Stratégie H4 + M10")
