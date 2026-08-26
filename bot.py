@@ -81,7 +81,7 @@ def publier_story(page_id, page_token, message, image):
         if not page_token or not page_id:
             log("⏭️ Pas de token Facebook pour story")
             return False
-        
+
         url_img = f"https://graph.facebook.com/v24.0/{page_id}/photos"
         files = {
             'source': ('chart.png', image, 'image/png'),
@@ -92,12 +92,12 @@ def publier_story(page_id, page_token, message, image):
         if r_img.status_code != 200:
             log(f"⚠️ Story: erreur upload image {r_img.status_code}")
             return False
-        
+
         img_id = r_img.json().get('id')
         if not img_id:
             log("⚠️ Story: pas d'ID d'image")
             return False
-        
+
         url_story = f"https://graph.facebook.com/v24.0/{page_id}/stories"
         data_story = {
             "media_id": img_id,
@@ -120,7 +120,7 @@ def publier_facebook(page_id, page_token, message, image=None):
         if not page_token or not page_id:
             log("⏭️ Pas de token Facebook configuré")
             return False
-        
+
         if image:
             url_img = f"https://graph.facebook.com/v24.0/{page_id}/photos"
             files = {
@@ -132,12 +132,12 @@ def publier_facebook(page_id, page_token, message, image=None):
             if r_img.status_code != 200:
                 log(f"⚠️ Facebook erreur upload image: {r_img.status_code}")
                 return False
-            
+
             img_id = r_img.json().get('id')
             if not img_id:
                 log("⚠️ Facebook: pas d'ID d'image")
                 return False
-            
+
             url_post = f"https://graph.facebook.com/v24.0/{page_id}/feed"
             data_post = {
                 "message": message,
@@ -231,23 +231,23 @@ def detect_cross_zero(macd, signal, histo):
 def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
     if len(candles) < 20:
         return None
-    
+
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 12), gridspec_kw={'height_ratios': [2, 1]})
     fig.patch.set_facecolor('#0a0a0a')
-    
+
     ax1.set_facecolor('#0d1117')
     for i, c in enumerate(candles):
         col = '#26a69a' if c["c"] >= c["o"] else '#ef5350'
         ax1.plot([i, i], [c["l"], c["h"]], color=col, lw=1.2)
         ax1.add_patch(plt.Rectangle((i-0.35, min(c["o"], c["c"])), 0.7, abs(c["c"]-c["o"]) or 0.0001, facecolor=col, edgecolor=col))
-    
+
     ax1.axhline(price, color='#f59e0b', ls='-.', lw=2, alpha=0.7)
     ax1.text(len(candles)-1, price, f'  {price:.{dec}f}', color='#f59e0b', fontsize=12, fontweight='bold')
     ax1.set_title(f"{title} - Chandeliers", color='white', fontsize=14, fontweight='bold')
     ax1.set_ylabel("Prix", color='white', fontsize=12)
     ax1.tick_params(colors='white')
     ax1.grid(True, alpha=0.15, color='gray')
-    
+
     ax2.set_facecolor('#0d1117')
     colors = ['#26a69a' if h >= 0 else '#ef5350' for h in histo]
     ax2.bar(range(len(histo)), histo, color=colors, alpha=0.7, width=0.8, label='Histogramme')
@@ -260,7 +260,7 @@ def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
     ax2.tick_params(colors='white')
     ax2.grid(True, alpha=0.15, color='gray')
     ax2.legend(loc='upper left', facecolor='#1a1a2e', edgecolor='#555', labelcolor='white', framealpha=0.9)
-    
+
     plt.tight_layout(pad=1.5)
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=130, facecolor='#0a0a0a')
@@ -270,7 +270,7 @@ def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
 
 def analyze_macd(key, info):
     log(f"🔍 Analyse MACD {key}...")
-    
+
     src = info.get("source", "yahoo")
     if src == "deriv":
         candles_h4 = get_candles_deriv(info["symbol"], granularity=14400)
@@ -287,32 +287,32 @@ def analyze_macd(key, info):
             candles_h4 = [{"t": int(ts.timestamp()), "o": row['o'], "h": row['h'], "l": row['l'], "c": row['c']} for ts, row in resampled.iterrows()]
             candles_h4 = candles_h4[-50:]
         candles_m10 = get_candles(info["symbol"], interval="5m", range_days="7d")
-    
+
     if not candles_h4 or not candles_m10:
         log(f"⚠️ Pas de données pour {key}")
         return
-    
+
     macd_h4, signal_h4, histo_h4 = calc_macd(candles_h4)
     macd_m10, signal_m10, histo_m10 = calc_macd(candles_m10)
-    
+
     direction_h4, cross_h4 = detect_cross_zero(macd_h4, signal_h4, histo_h4)
     direction_m10, cross_m10 = detect_cross_zero(macd_m10, signal_m10, histo_m10)
-    
+
     if macd_h4[-1] > 0 and signal_h4[-1] > 0 and histo_h4[-1] > 0:
         tendance_h4 = "HAUSSIERE"
     elif macd_h4[-1] < 0 and signal_h4[-1] < 0 and histo_h4[-1] < 0:
         tendance_h4 = "BAISSIERE"
     else:
         tendance_h4 = "NEUTRE"
-    
+
     dec = info["dec"]
     cp = candles_m10[-1]["c"]
     h = datetime.now(pytz.timezone('Africa/Porto-Novo')).hour
-    
+
     msg = ""
     conseil = ""
     condition_remplie = False
-    
+
     if cross_h4:
         if direction_h4 == "HAUT":
             msg = f"📊 Tendance H4 DEVIENT HAUSSIERE\n✅ MACD + Signal + Histo croisent 0 vers le HAUT"
@@ -329,27 +329,27 @@ def analyze_macd(key, info):
         msg = f"📉 SIGNAL VENTE MACD\n✅ Tendance BAISSIERE (H4) confirmée\n✅ Croisement BAS sur M10"
         conseil = "📉 VENTE (H4 BAISSIER + M10 BAS)"
         condition_remplie = True
-    
+
     if condition_remplie:
         full_msg = f"{msg}\n\n💰 Prix: {cp:.{dec}f}\n🕒 {h}H Bénin\n🤖 MACD Bot"
-        
+
         log(f"📤 ENVOI ÉVÉNEMENT {key}...")
         send(info["ntfy"], f"🚨 {key} - {conseil}", full_msg)
-        
+
         time.sleep(1)
-        
+
         log(f"📤 Graphique H4 pour {key}...")
         img_h4 = chart_macd_mt5(candles_h4, macd_h4, signal_h4, histo_h4, f"{info['name']} H4", cp, dec)
         if img_h4:
             send(info["ntfy"], f"{key} H4 - {conseil}", "MACD H4 (3,100,3)", img_h4)
-        
+
         time.sleep(1)
-        
+
         log(f"📤 Graphique M10 pour {key}...")
         img_m10 = chart_macd_mt5(candles_m10, macd_m10, signal_m10, histo_m10, f"{info['name']} M10", cp, dec)
         if img_m10:
             send(info["ntfy"], f"{key} M10 - {conseil}", "MACD M10 (3,100,3)", img_m10)
-        
+
         if FB_PAGE_TOKEN and FB_PAGE_ID:
             if img_h4:
                 log(f"📤 Publication Facebook {key} (H4)...")
@@ -358,7 +358,7 @@ def analyze_macd(key, info):
                 time.sleep(1)
                 log(f"📤 Publication Facebook {key} (M10)...")
                 publier_facebook(FB_PAGE_ID, FB_PAGE_TOKEN, full_msg, img_m10)
-        
+
         if FB_PAGE_TOKEN and FB_PAGE_ID and img_h4:
             if peut_publier_story():
                 log(f"📤 Publication story {key} (H4)...")
@@ -372,10 +372,10 @@ if __name__ == "__main__":
     log("🚀 MACD BOT - Stratégie H4 + M10")
     now = datetime.now(pytz.timezone('Africa/Porto-Novo'))
     h, j = now.hour, now.weekday()
-    
+
     log("→ V75 (7j/7)")
     analyze_macd("V75", PAIRS["V75"])
-    
+
     if j < 5:
         log(f"📊 Analyse Forex {h}H")
         for key in ["XAUUSD", "EURUSD", "GBPUSD"]:
@@ -383,5 +383,5 @@ if __name__ == "__main__":
             analyze_macd(key, PAIRS[key])
     else:
         log(f"💤 Forex ferme week-end")
-    
+
     log("✅ Termine")
