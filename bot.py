@@ -28,9 +28,9 @@ def send(url, title, msg, img=None):
             if img:
                 h["Filename"] = "chart.png"
                 h["X-Message"] = msg
-                r = requests.post(url, data=img, headers={k: v.encode() for k, v in h.items()}, timeout=30)
+                r = requests.post(url, data=img, headers={k: v.encode('utf-8') for k, v in h.items()}, timeout=30)
             else:
-                r = requests.post(url, data=msg.encode(), headers=h, timeout=15)
+                r = requests.post(url, data=msg.encode('utf-8'), headers=h, timeout=15)
             if r.status_code == 200:
                 log(f"✅ {title}")
                 return True
@@ -140,70 +140,70 @@ def analyze_macd(key, info):
     log(f"🔍 Analyse MACD {key}...")
     src = info.get("source", "yahoo")
     if src == "deriv":
-        candles_h4 = get_candles_deriv(info["symbol"], granularity=14400)
-        candles_m10 = get_candles_deriv(info["symbol"], granularity=600)
+        candles_h2 = get_candles_deriv(info["symbol"], granularity=7200)  # H2
+        candles_m10 = get_candles_deriv(info["symbol"], granularity=600)   # M10
     else:
-        candles_h4 = get_candles(info["symbol"], interval="1h", range_days="60d")
-        if len(candles_h4) >= 4:
-            df = pd.DataFrame(candles_h4)
+        candles_h2 = get_candles(info["symbol"], interval="1h", range_days="60d")
+        if len(candles_h2) >= 2:
+            df = pd.DataFrame(candles_h2)
             df['t'] = pd.to_datetime(df['t'], unit='s')
             df.set_index('t', inplace=True)
-            resampled = df.resample('4H').agg({'o': 'first', 'h': 'max', 'l': 'min', 'c': 'last'}).dropna()
-            candles_h4 = [{"t": int(ts.timestamp()), "o": row['o'], "h": row['h'], "l": row['l'], "c": row['c']} for ts, row in resampled.iterrows()]
-            candles_h4 = candles_h4[-50:]
+            resampled = df.resample('2H').agg({'o': 'first', 'h': 'max', 'l': 'min', 'c': 'last'}).dropna()
+            candles_h2 = [{"t": int(ts.timestamp()), "o": row['o'], "h": row['h'], "l": row['l'], "c": row['c']} for ts, row in resampled.iterrows()]
+            candles_h2 = candles_h2[-50:]
         candles_m10 = get_candles(info["symbol"], interval="5m", range_days="7d")
-    if not candles_h4 or not candles_m10:
+    if not candles_h2 or not candles_m10:
         log(f"⚠️ Pas de données pour {key}")
         return
-    macd_h4, signal_h4, histo_h4 = calc_macd(candles_h4)
+    macd_h2, signal_h2, histo_h2 = calc_macd(candles_h2)
     macd_m10, signal_m10, histo_m10 = calc_macd(candles_m10)
-    direction_h4, cross_h4 = detect_cross_zero(macd_h4, signal_h4, histo_h4)
+    direction_h2, cross_h2 = detect_cross_zero(macd_h2, signal_h2, histo_h2)
     direction_m10, cross_m10 = detect_cross_zero(macd_m10, signal_m10, histo_m10)
-    if macd_h4[-1] > 0 and signal_h4[-1] > 0 and histo_h4[-1] > 0:
-        tendance_h4 = "HAUSSIERE"
-    elif macd_h4[-1] < 0 and signal_h4[-1] < 0 and histo_h4[-1] < 0:
-        tendance_h4 = "BAISSIERE"
+    if macd_h2[-1] > 0 and signal_h2[-1] > 0 and histo_h2[-1] > 0:
+        tendance_h2 = "HAUSSIERE"
+    elif macd_h2[-1] < 0 and signal_h2[-1] < 0 and histo_h2[-1] < 0:
+        tendance_h2 = "BAISSIERE"
     else:
-        tendance_h4 = "NEUTRE"
+        tendance_h2 = "NEUTRE"
     dec = info["dec"]
     cp = candles_m10[-1]["c"]
     msg = ""
     conseil = ""
     condition_remplie = False
-    if cross_h4:
-        if direction_h4 == "HAUT":
-            conseil = "🔍 Tendance HAUSSIERE confirmée (H4)"
-            msg = f"📊 Tendance H4 DEVIENT HAUSSIERE\n✅ MACD + Signal + Histo croisent 0 vers le HAUT"
-        elif direction_h4 == "BAS":
-            conseil = "🔍 Tendance BAISSIERE confirmée (H4)"
-            msg = f"📊 Tendance H4 DEVIENT BAISSIERE\n✅ MACD + Signal + Histo croisent 0 vers le BAS"
+    if cross_h2:
+        if direction_h2 == "HAUT":
+            conseil = "Tendance HAUSSIERE confirmee (H2)"
+            msg = f"Tendance H2 DEVIENT HAUSSIERE\nMACD + Signal + Histo croisent 0 vers le HAUT"
+        elif direction_h2 == "BAS":
+            conseil = "Tendance BAISSIERE confirmee (H2)"
+            msg = f"Tendance H2 DEVIENT BAISSIERE\nMACD + Signal + Histo croisent 0 vers le BAS"
         condition_remplie = True
-    elif cross_m10 and direction_m10 == "HAUT" and tendance_h4 == "HAUSSIERE":
-        conseil = "📈 ACHAT (H4 HAUSSIER + M10 HAUT)"
-        msg = f"📈 SIGNAL ACHAT MACD\n✅ Tendance HAUSSIERE (H4) confirmée\n✅ Croisement HAUT sur M10"
+    elif cross_m10 and direction_m10 == "HAUT" and tendance_h2 == "HAUSSIERE":
+        conseil = "ACHAT (H2 HAUSSIER + M10 HAUT)"
+        msg = f"SIGNAL ACHAT MACD\nTendance HAUSSIERE (H2) confirmee\nCroisement HAUT sur M10"
         condition_remplie = True
-    elif cross_m10 and direction_m10 == "BAS" and tendance_h4 == "BAISSIERE":
-        conseil = "📉 VENTE (H4 BAISSIER + M10 BAS)"
-        msg = f"📉 SIGNAL VENTE MACD\n✅ Tendance BAISSIERE (H4) confirmée\n✅ Croisement BAS sur M10"
+    elif cross_m10 and direction_m10 == "BAS" and tendance_h2 == "BAISSIERE":
+        conseil = "VENTE (H2 BAISSIER + M10 BAS)"
+        msg = f"SIGNAL VENTE MACD\nTendance BAISSIERE (H2) confirmee\nCroisement BAS sur M10"
         condition_remplie = True
 
     if condition_remplie:
-        full_msg = f"{msg}\n\n💰 Prix: {cp:.{dec}f}\n🕒 {datetime.now(pytz.timezone('Africa/Porto-Novo')).hour}H Bénin\n🤖 MACD Bot"
-        log(f"📤 SIGNAL {key} - {conseil}")
-        send(info["ntfy"], f"🚨 {key} - {conseil}", full_msg)
+        full_msg = f"{msg}\n\nPrix: {cp:.{dec}f}\nTendance H2: {tendance_h2}\n{datetime.now(pytz.timezone('Africa/Porto-Novo')).strftime('%H:%M')}H Benin\nMACD Bot"
+        log(f"📤 ENVOI SIGNAL {key} - {conseil}")
+        send(info["ntfy"], f"ALERTE {key} - {conseil}", full_msg)
         time.sleep(1)
-        img_h4 = chart_macd_mt5(candles_h4, macd_h4, signal_h4, histo_h4, f"{info['name']} H4", cp, dec)
-        if img_h4:
-            send(info["ntfy"], f"{key} H4", "MACD H4", img_h4)
+        img_h2 = chart_macd_mt5(candles_h2, macd_h2, signal_h2, histo_h2, f"{info['name']} H2", cp, dec)
+        if img_h2:
+            send(info["ntfy"], f"{key} H2 - {conseil}", "MACD H2", img_h2)
         time.sleep(1)
         img_m10 = chart_macd_mt5(candles_m10, macd_m10, signal_m10, histo_m10, f"{info['name']} M10", cp, dec)
         if img_m10:
-            send(info["ntfy"], f"{key} M10", "MACD M10", img_m10)
+            send(info["ntfy"], f"{key} M10 - {conseil}", "MACD M10", img_m10)
     else:
         log(f"⏭️ SILENCE {key} - Pas de signal MACD")
 
 if __name__ == "__main__":
-    log("🚀 MACD BOT - Stratégie H4 + M10")
+    log("🚀 MACD BOT - Strategie H2 + M10")
     now = datetime.now(pytz.timezone('Africa/Porto-Novo'))
     h, j = now.hour, now.weekday()
     log("→ V75 (7j/7)")
