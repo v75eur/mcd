@@ -81,6 +81,19 @@ def get_candles(sym, interval="1h", range_days="60d"):
         log(f"❌ Yahoo {sym}: {e}")
         return []
 
+def calc_atr(candles, period=14):
+    if len(candles) < period + 1:
+        return 0.0
+    tr_list = []
+    for i in range(1, len(candles)):
+        h = candles[i]["h"]
+        l = candles[i]["l"]
+        c_prev = candles[i-1]["c"]
+        tr = max(h - l, abs(h - c_prev), abs(l - c_prev))
+        tr_list.append(tr)
+    atr = sum(tr_list[-period:]) / period
+    return atr
+
 def calc_macd(candles, fast=3, slow=100, signal=3):
     closes = np.array([c["c"] for c in candles])
     ema_fast = pd.Series(closes).ewm(span=fast, adjust=False).mean().values
@@ -101,22 +114,30 @@ def detect_cross_zero(macd, signal, histo):
             return "BAS", True
     return None, False
 
-def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
+def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, sl_price=None, dec=2):
     if len(candles) < 20:
         return None
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 12), gridspec_kw={'height_ratios': [2, 1]})
     fig.patch.set_facecolor('#0a0a0a')
+
     ax1.set_facecolor('#0d1117')
     for i, c in enumerate(candles):
         col = '#26a69a' if c["c"] >= c["o"] else '#ef5350'
         ax1.plot([i, i], [c["l"], c["h"]], color=col, lw=1.2)
         ax1.add_patch(plt.Rectangle((i-0.35, min(c["o"], c["c"])), 0.7, abs(c["c"]-c["o"]) or 0.0001, facecolor=col, edgecolor=col))
-    ax1.axhline(price, color='#f59e0b', ls='-.', lw=2, alpha=0.7)
-    ax1.text(len(candles)-1, price, f'  {price:.{dec}f}', color='#f59e0b', fontsize=12, fontweight='bold')
-    ax1.set_title(f"{title} - Chandeliers", color='white', fontsize=14, fontweight='bold')
+
+    ax1.axhline(price, color='#f59e0b', ls='-.', lw=2.5)
+    ax1.text(2, price, f' Entrée: {price:.{dec}f}', color='#f59e0b', fontsize=12, fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', facecolor='#1a1400', alpha=0.85))
+
+    if sl_price:
+        ax1.axhline(sl_price, color='#ef5350', ls='--', lw=2.5)
+        ax1.text(2, sl_price, f' Stop-Loss: {sl_price:.{dec}f}', color='#ef5350', fontsize=12, fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', facecolor='#1a0a0a', alpha=0.85))
+
+    ax1.set_title(f"{title} - Chandeliers & Stop-Loss", color='white', fontsize=14, fontweight='bold')
     ax1.set_ylabel("Prix", color='white', fontsize=12)
     ax1.tick_params(colors='white')
     ax1.grid(True, alpha=0.15, color='gray')
+
     ax2.set_facecolor('#0d1117')
     colors = ['#26a69a' if h >= 0 else '#ef5350' for h in histo]
     ax2.bar(range(len(histo)), histo, color=colors, alpha=0.7, width=0.8, label='Histogramme')
@@ -129,6 +150,7 @@ def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
     ax2.tick_params(colors='white')
     ax2.grid(True, alpha=0.15, color='gray')
     ax2.legend(loc='upper left', facecolor='#1a1a2e', edgecolor='#555', labelcolor='white', framealpha=0.9)
+
     plt.tight_layout(pad=1.5)
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=130, facecolor='#0a0a0a')
@@ -139,9 +161,10 @@ def chart_macd_mt5(candles, macd_line, signal_line, histo, title, price, dec=2):
 def analyze_macd(key, info):
     log(f"🔍 Analyse MACD {key}...")
     src = info.get("source", "yahoo")
+
     if src == "deriv":
-        candles_h2 = get_candles_deriv(info["symbol"], granularity=7200)  # H2
-        candles_m10 = get_candles_deriv(info["symbol"], granularity=600)   # M10
+        candles_h2 = get_candles_deriv(info["symbol"], granularity=7200)
+        candles_m10 = get_candles_deriv(info["symbol"], granularity=600)
     else:
         candles_h2 = get_candles(info["symbol"], interval="1h", range_days="60d")
         if len(candles_h2) >= 2:
@@ -152,58 +175,86 @@ def analyze_macd(key, info):
             candles_h2 = [{"t": int(ts.timestamp()), "o": row['o'], "h": row['h'], "l": row['l'], "c": row['c']} for ts, row in resampled.iterrows()]
             candles_h2 = candles_h2[-50:]
         candles_m10 = get_candles(info["symbol"], interval="5m", range_days="7d")
+
     if not candles_h2 or not candles_m10:
         log(f"⚠️ Pas de données pour {key}")
         return
+
     macd_h2, signal_h2, histo_h2 = calc_macd(candles_h2)
     macd_m10, signal_m10, histo_m10 = calc_macd(candles_m10)
+
     direction_h2, cross_h2 = detect_cross_zero(macd_h2, signal_h2, histo_h2)
     direction_m10, cross_m10 = detect_cross_zero(macd_m10, signal_m10, histo_m10)
+
     if macd_h2[-1] > 0 and signal_h2[-1] > 0 and histo_h2[-1] > 0:
         tendance_h2 = "HAUSSIERE"
     elif macd_h2[-1] < 0 and signal_h2[-1] < 0 and histo_h2[-1] < 0:
         tendance_h2 = "BAISSIERE"
     else:
         tendance_h2 = "NEUTRE"
+
     dec = info["dec"]
     cp = candles_m10[-1]["c"]
+    atr_m10 = calc_atr(candles_m10, 14)
+    seuil_atr_min = 0.00008 if key in ["EURUSD", "GBPUSD"] else (0.4 if key == "XAUUSD" else 4.0)
+    tolerance = 0.0004 if key in ["EURUSD", "GBPUSD"] else (1.0 if key == "XAUUSD" else 10.0)
+
     msg = ""
     conseil = ""
     condition_remplie = False
+    sl_price = 0.0
+
     if cross_h2:
         if direction_h2 == "HAUT":
             conseil = "Tendance HAUSSIERE confirmee (H2)"
             msg = f"Tendance H2 DEVIENT HAUSSIERE\nMACD + Signal + Histo croisent 0 vers le HAUT"
+            recent_low = min([c["l"] for c in candles_m10[-5:]])
+            sl_price = recent_low - tolerance
         elif direction_h2 == "BAS":
             conseil = "Tendance BAISSIERE confirmee (H2)"
             msg = f"Tendance H2 DEVIENT BAISSIERE\nMACD + Signal + Histo croisent 0 vers le BAS"
+            recent_high = max([c["h"] for c in candles_m10[-5:]])
+            sl_price = recent_high + tolerance
         condition_remplie = True
+
     elif cross_m10 and direction_m10 == "HAUT" and tendance_h2 == "HAUSSIERE":
         conseil = "ACHAT (H2 HAUSSIER + M10 HAUT)"
         msg = f"SIGNAL ACHAT MACD\nTendance HAUSSIERE (H2) confirmee\nCroisement HAUT sur M10"
+        recent_low = min([c["l"] for c in candles_m10[-5:]])
+        sl_price = recent_low - tolerance
         condition_remplie = True
+
     elif cross_m10 and direction_m10 == "BAS" and tendance_h2 == "BAISSIERE":
         conseil = "VENTE (H2 BAISSIER + M10 BAS)"
         msg = f"SIGNAL VENTE MACD\nTendance BAISSIERE (H2) confirmee\nCroisement BAS sur M10"
+        recent_high = max([c["h"] for c in candles_m10[-5:]])
+        sl_price = recent_high + tolerance
         condition_remplie = True
 
     if condition_remplie:
-        full_msg = f"{msg}\n\nPrix: {cp:.{dec}f}\nTendance H2: {tendance_h2}\n{datetime.now(pytz.timezone('Africa/Porto-Novo')).strftime('%H:%M')}H Benin\nMACD Bot"
+        if atr_m10 < seuil_atr_min:
+            log(f"⏭️ SILENCE {key} - Signal MACD détecté mais ATR M10 trop faible ({atr_m10:.5f}) [Marché plat]")
+            return
+
+        full_msg = f"{msg}\n\nPrix: {cp:.{dec}f}\nTendance H2: {tendance_h2}\nATR M10: {atr_m10:.{dec}f}\n🛑 Stop-Loss Tolérable: {sl_price:.{dec}f}\n{datetime.now(pytz.timezone('Africa/Porto-Novo')).strftime('%H:%M')}H Benin\nMACD Bot Pro"
+
         log(f"📤 ENVOI SIGNAL {key} - {conseil}")
         send(info["ntfy"], f"ALERTE {key} - {conseil}", full_msg)
+
         time.sleep(1)
-        img_h2 = chart_macd_mt5(candles_h2, macd_h2, signal_h2, histo_h2, f"{info['name']} H2", cp, dec)
+        img_h2 = chart_macd_mt5(candles_h2, macd_h2, signal_h2, histo_h2, f"{info['name']} H2", cp, sl_price, dec)
         if img_h2:
-            send(info["ntfy"], f"{key} H2 - {conseil}", "MACD H2", img_h2)
+            send(info["ntfy"], f"{key} H2 - {conseil}", "MACD H2 & SL", img_h2)
+
         time.sleep(1)
-        img_m10 = chart_macd_mt5(candles_m10, macd_m10, signal_m10, histo_m10, f"{info['name']} M10", cp, dec)
+        img_m10 = chart_macd_mt5(candles_m10, macd_m10, signal_m10, histo_m10, f"{info['name']} M10", cp, sl_price, dec)
         if img_m10:
-            send(info["ntfy"], f"{key} M10 - {conseil}", "MACD M10", img_m10)
+            send(info["ntfy"], f"{key} M10 - {conseil}", "MACD M10 & SL", img_m10)
     else:
         log(f"⏭️ SILENCE {key} - Pas de signal MACD")
 
 if __name__ == "__main__":
-    log("🚀 MACD BOT - Strategie H2 + M10")
+    log("🚀 MACD BOT PRO - Strategie H2 + M10 + ATR + SL")
     now = datetime.now(pytz.timezone('Africa/Porto-Novo'))
     h, j = now.hour, now.weekday()
     log("→ V75 (7j/7)")
